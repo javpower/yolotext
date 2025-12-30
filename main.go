@@ -147,7 +147,7 @@ func ConvertJsonToYolo(jsonPath string, imgW, imgH int, classMap map[string]int)
 	return yoloLines, nil
 }
 
-// ==================== 2. 核心组件：交互式画布 (修复点击+新增画框) ====================
+// ==================== 2. 核心组件：交互式画布 (画框+删除) ====================
 
 type BoxData struct {
 	Cls  int
@@ -280,10 +280,9 @@ func (ii *InteractiveImage) Cursor() desktop.Cursor {
 
 // Dragged 拖拽事件 (用于画框)
 func (ii *InteractiveImage) Dragged(e *fyne.DragEvent) {
-	// 如果还没开始画，记录起点
 	if !ii.drawing {
 		ii.drawing = true
-		ii.dragStart = e.Position.Subtract(e.Dragged) // 近似起点
+		ii.dragStart = e.Position.Subtract(e.Dragged)
 	}
 	ii.currentDrag = e.Position
 	ii.Refresh()
@@ -296,33 +295,29 @@ func (ii *InteractiveImage) DragEnd() {
 	}
 	ii.drawing = false
 
-	// 计算最终矩形
 	x1 := float64(math.Min(float64(ii.dragStart.X), float64(ii.currentDrag.X)))
 	y1 := float64(math.Min(float64(ii.dragStart.Y), float64(ii.currentDrag.Y)))
 	w := float64(math.Abs(float64(ii.dragStart.X) - float64(ii.currentDrag.X)))
 	h := float64(math.Abs(float64(ii.dragStart.Y) - float64(ii.currentDrag.Y)))
 
-	// 如果框太小，视为误触
 	if w < 5 || h < 5 {
 		ii.Refresh()
 		return
 	}
 
-	// 弹出输入框
 	entry := widget.NewEntry()
-	entry.SetPlaceHolder("输入整数ID (例如 0)")
+	entry.SetPlaceHolder("输入ID")
 
 	dlg := dialog.NewForm("新建标注", "确定", "取消", []*widget.FormItem{
 		widget.NewFormItem("类别 ID:", entry),
 	}, func(ok bool) {
 		if ok {
-			// 保存逻辑
 			clsID, err := strconv.Atoi(entry.Text)
 			if err == nil {
 				ii.appendLabelToFile(clsID, x1, y1, w, h)
 			}
 		}
-		ii.Refresh() // 清除蓝色框
+		ii.Refresh()
 	}, ii.parentWin)
 
 	dlg.Resize(fyne.NewSize(300, 150))
@@ -331,57 +326,46 @@ func (ii *InteractiveImage) DragEnd() {
 
 // Tapped 点击事件 (用于删除)
 func (ii *InteractiveImage) Tapped(e *fyne.PointEvent) {
-	// 倒序遍历（优先点中上层的框）
 	for i := len(ii.boxes) - 1; i >= 0; i-- {
 		b := ii.boxes[i]
-		// 检查点击坐标是否在框内
 		if e.Position.X >= b.Pos.X && e.Position.X <= b.Pos.X+b.Rect.Width &&
 			e.Position.Y >= b.Pos.Y && e.Position.Y <= b.Pos.Y+b.Rect.Height {
 
-			// 弹出删除确认
 			dialog.ShowConfirm("删除标注", fmt.Sprintf("确认删除类别 %d 的这个框?", b.Cls), func(ok bool) {
 				if ok {
 					ii.removeLabelFromFile(b.Raw)
 				}
 			}, ii.parentWin)
-			return // 只处理点中的第一个
+			return
 		}
 	}
 }
 
-// appendLabelToFile 追加写入文件
 func (ii *InteractiveImage) appendLabelToFile(cls int, x, y, w, h float64) {
 	f, err := os.OpenFile(ii.labelPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-
-	// 像素 -> YOLO归一化
 	cx := x + w/2.0
 	cy := y + h/2.0
 	normCx := cx / float64(ii.origW)
 	normCy := cy / float64(ii.origH)
 	normW := w / float64(ii.origW)
 	normH := h / float64(ii.origH)
-
 	line := fmt.Sprintf("\n%d %.6f %.6f %.6f %.6f", cls, normCx, normCy, normW, normH)
 	f.WriteString(line)
-
-	ii.onRefreshReq() // 重新加载界面
+	ii.onRefreshReq()
 }
 
-// removeLabelFromFile 从文件中删除行
 func (ii *InteractiveImage) removeLabelFromFile(targetRaw string) {
 	content, _ := os.ReadFile(ii.labelPath)
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
 	deleted := false
-
 	for _, l := range lines {
-		// 简单的行匹配
 		if !deleted && strings.TrimSpace(l) == strings.TrimSpace(targetRaw) {
-			deleted = true // 标记已删除，防止误删重复行
+			deleted = true
 			continue
 		}
 		if strings.TrimSpace(l) != "" {
@@ -389,10 +373,10 @@ func (ii *InteractiveImage) removeLabelFromFile(targetRaw string) {
 		}
 	}
 	os.WriteFile(ii.labelPath, []byte(strings.Join(newLines, "\n")), 0644)
-	ii.onRefreshReq() // 重新加载界面
+	ii.onRefreshReq()
 }
 
-// ==================== 3. 预览窗口 (调用 InteractiveImage) ====================
+// ==================== 3. 预览窗口 ====================
 
 func ShowPreviewWindow(parent fyne.App, datasetDir string) {
 	win := parent.NewWindow("数据集审核 (拖拽画框 / 点击红框删除)")
@@ -400,9 +384,8 @@ func ShowPreviewWindow(parent fyne.App, datasetDir string) {
 
 	fileListWidget := widget.NewList(nil, nil, nil)
 
-	// 【关键修复】使用 NewWithoutLayout 作为初始内容，避免 nil 崩溃
-	emptyPlaceholder := container.NewWithoutLayout()
-	scrollContainer := container.NewScroll(emptyPlaceholder)
+	// 使用 NewWithoutLayout 作为初始内容，防止 Fyne 布局计算空指针崩溃
+	scrollContainer := container.NewScroll(container.NewWithoutLayout())
 
 	statusLabel := widget.NewLabel("准备就绪")
 	statusLabel.TextStyle.Bold = true
@@ -428,7 +411,6 @@ func ShowPreviewWindow(parent fyne.App, datasetDir string) {
 		fileListWidget.Refresh()
 	}
 
-	// 刷新逻辑
 	var reloadCurrentItem func()
 	reloadCurrentItem = func() {
 		if currentImgPath == "" {
@@ -437,7 +419,6 @@ func ShowPreviewWindow(parent fyne.App, datasetDir string) {
 		statusLabel.SetText(fmt.Sprintf("加载中: %s", filepath.Base(currentImgPath)))
 
 		go func(imgPath, labelPath string) {
-			// A. 解码图片
 			f, err := os.Open(imgPath)
 			if err != nil {
 				return
@@ -451,7 +432,6 @@ func ShowPreviewWindow(parent fyne.App, datasetDir string) {
 			origW := float32(img.Bounds().Dx())
 			origH := float32(img.Bounds().Dy())
 
-			// B. 读取标注
 			var boxList []BoxData
 			if _, err := os.Stat(labelPath); err == nil {
 				content, _ := os.ReadFile(labelPath)
@@ -477,14 +457,10 @@ func ShowPreviewWindow(parent fyne.App, datasetDir string) {
 				}
 			}
 
-			// C. 创建交互控件
 			interactiveWidget := NewInteractiveImage(win, img, labelPath, reloadCurrentItem)
 			interactiveWidget.LoadBoxes(boxList)
+			interactiveWidget.Resize(fyne.NewSize(origW, origH)) // 必须显式设置
 
-			// 重要：显式设置最小尺寸，否则 Scroll 容器不会滚动
-			interactiveWidget.Resize(fyne.NewSize(origW, origH))
-
-			// D. 更新 UI
 			scrollContainer.Content = interactiveWidget
 			scrollContainer.Refresh()
 
@@ -517,12 +493,12 @@ func ShowPreviewWindow(parent fyne.App, datasetDir string) {
 	win.Show()
 }
 
-// ==================== 4. 主程序 ====================
+// ==================== 4. 主程序 (含Windows崩溃修复) ====================
 
 func main() {
-	// 【关键修复】使用 NewWithID 避免 Preferences API 报错
-	myApp := app.NewWithID("yolo.tools.custom")
-	myWindow := myApp.NewWindow("YOLO 数据集工具 (Go Ultimate v2)")
+	// 使用 NewWithID 解决 Warning
+	myApp := app.NewWithID("yolo.tools.fix")
+	myWindow := myApp.NewWindow("YOLO 数据集工具 (Windows E盘修复版)")
 	myWindow.Resize(fyne.NewSize(1000, 700))
 
 	// 数据源
@@ -543,7 +519,10 @@ func main() {
 			}
 		}, myWindow)
 	})
-	btnClear := widget.NewButtonWithIcon("清空", theme.DeleteIcon(), func() { listData = []string{}; listWidget.Refresh() })
+	btnClear := widget.NewButtonWithIcon("清空", theme.DeleteIcon(), func() {
+		listData = []string{}
+		listWidget.Refresh()
+	})
 	leftPane := container.NewBorder(
 		container.NewVBox(widget.NewLabelWithStyle("数据源", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}), container.NewGridWithColumns(2, btnAdd, btnClear)),
 		nil, nil, nil, listWidget,
@@ -593,14 +572,26 @@ func main() {
 		logArea.Refresh()
 	}
 
+	// 【核心修复】btnRun 逻辑
 	btnRun := widget.NewButtonWithIcon("开始执行", theme.MediaPlayIcon(), func() {
-		if len(listData) == 0 || entryOut.Text == "" || entryClasses.Text == "" {
-			dialog.ShowError(fmt.Errorf("请补全信息"), myWindow)
+		// 基础校验
+		if len(listData) == 0 {
+			dialog.ShowError(fmt.Errorf("错误：未添加数据源"), myWindow)
 			return
 		}
-		progressBar.SetValue(0)
-		logArea.SetText("")
+		if entryOut.Text == "" {
+			dialog.ShowError(fmt.Errorf("错误：未选择输出目录"), myWindow)
+			return
+		}
+		if entryClasses.Text == "" {
+			dialog.ShowError(fmt.Errorf("错误：未填写类别"), myWindow)
+			return
+		}
 
+		progressBar.SetValue(0)
+		logArea.SetText("初始化中...\n")
+
+		// 获取参数
 		outDir := entryOut.Text
 		doProc := checkEnableProc.Checked
 		maxKB, _ := strconv.Atoi(entryKB.Text)
@@ -613,28 +604,48 @@ func main() {
 		}
 
 		go func() {
-			logFunc(">>> 扫描中...")
+			// 【Panic 捕获】防止 Windows 静默崩溃
+			defer func() {
+				if r := recover(); r != nil {
+					dialog.ShowError(fmt.Errorf("程序发生异常:\n%v", r), myWindow)
+				}
+			}()
+
+			logFunc(">>> 开始扫描...")
 			type FilePair struct{ ImgPath, JsonPath string }
 			var tasks []FilePair
+
 			for _, d := range listData {
-				files, _ := os.ReadDir(d)
+				files, err := os.ReadDir(d)
+				if err != nil {
+					logFunc("读取错误: " + d)
+					continue
+				}
 				for _, f := range files {
-					if !f.IsDir() && (strings.HasSuffix(strings.ToLower(f.Name()), ".jpg") || strings.HasSuffix(strings.ToLower(f.Name()), ".png")) {
-						base := strings.TrimSuffix(f.Name(), filepath.Ext(f.Name()))
-						tasks = append(tasks, FilePair{filepath.Join(d, f.Name()), filepath.Join(d, base+".json")})
+					if !f.IsDir() {
+						ext := strings.ToLower(filepath.Ext(f.Name()))
+						if ext == ".jpg" || ext == ".png" || ext == ".bmp" || ext == ".jpeg" {
+							base := strings.TrimSuffix(f.Name(), filepath.Ext(f.Name()))
+							tasks = append(tasks, FilePair{filepath.Join(d, f.Name()), filepath.Join(d, base+".json")})
+						}
 					}
 				}
 			}
+
 			if len(tasks) == 0 {
-				logFunc("未找到图片")
+				logFunc("!!! 未找到图片")
+				dialog.ShowInformation("提示", "未找到图片，请检查路径", myWindow)
 				return
 			}
 
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			r.Shuffle(len(tasks), func(i, j int) { tasks[i], tasks[j] = tasks[j], tasks[i] })
 
+			// 创建目录 (带 Panic 检查)
 			for _, s := range []string{"train", "val", "test"} {
-				os.MkdirAll(filepath.Join(outDir, "images", s), 0755)
+				if err := os.MkdirAll(filepath.Join(outDir, "images", s), 0755); err != nil {
+					panic("无法创建目录: " + err.Error())
+				}
 				os.MkdirAll(filepath.Join(outDir, "labels", s), 0755)
 			}
 
@@ -653,33 +664,39 @@ func main() {
 				} else if i < trainC+valC {
 					sub = "val"
 				}
+
 				go func(idx int, task FilePair, subset string) {
 					defer wg.Done()
 					defer func() { <-limit }()
 
-					// 处理图片
+					// 单个任务容错
+					defer func() { recover() }()
+
 					base := strings.TrimSuffix(filepath.Base(task.ImgPath), filepath.Ext(task.ImgPath))
 					var imgW, imgH int
 
 					if doProc {
-						f, _ := os.Open(task.ImgPath)
-						img, _, err := image.Decode(f)
-						f.Close()
+						f, err := os.Open(task.ImgPath)
 						if err == nil {
-							imgW, imgH = img.Bounds().Dx(), img.Bounds().Dy()
-							SmartCompress(img, filepath.Join(outDir, "images", subset, base+".jpg"), maxKB)
+							img, _, err := image.Decode(f)
+							f.Close()
+							if err == nil {
+								imgW, imgH = img.Bounds().Dx(), img.Bounds().Dy()
+								SmartCompress(img, filepath.Join(outDir, "images", subset, base+".jpg"), maxKB)
+							}
 						}
 					} else {
-						f, _ := os.Open(task.ImgPath)
-						cfg, _, err := image.DecodeConfig(f)
-						f.Close()
+						f, err := os.Open(task.ImgPath)
 						if err == nil {
-							imgW, imgH = cfg.Width, cfg.Height
-							DirectCopy(task.ImgPath, filepath.Join(outDir, "images", subset, base+filepath.Ext(task.ImgPath)))
+							cfg, _, err := image.DecodeConfig(f)
+							f.Close()
+							if err == nil {
+								imgW, imgH = cfg.Width, cfg.Height
+								DirectCopy(task.ImgPath, filepath.Join(outDir, "images", subset, base+filepath.Ext(task.ImgPath)))
+							}
 						}
 					}
 
-					// 处理标签
 					if _, err := os.Stat(task.JsonPath); err == nil && imgW > 0 {
 						lines, err := ConvertJsonToYolo(task.JsonPath, imgW, imgH, clsMap)
 						if err == nil {

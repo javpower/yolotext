@@ -7,26 +7,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 安装 Go
+      # 1. 设置 Go 环境
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
 
-      # 2. 安装 Linux 下编译 Fyne 必须的图形库依赖
-      # 即使是交叉编译 Windows，Fyne 的构建过程也需要本地有一些基础头文件
-      - name: Install Linux Dependencies
+      # 2. 安装 Linux 下的图形库依赖 + MinGW 编译器
+      # 这是为了让 Fyne 能在 Linux 环境下完成 CGO 编译
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-mingw-w64 libgl1-mesa-dev xorg-dev
 
-      # 3. 整理依赖 (防止因 checksum 错误导致编译中断)
+      # 3. 整理 Go 依赖
+      # 防止因为 checksum 不一致导致的编译中断
       - name: Tidy Go Modules
         run: go mod tidy
 
-      # 4. 执行交叉编译 (不使用 fyne-cross 工具，直接调用 Go 编译器)
-      # CC=... 指定了刚安装的 Windows 交叉编译器
-      # -H=windowsgui 隐藏黑框
+      # 4. 执行交叉编译 (生成 Windows Exe)
+      # CC=... : 指定使用 Windows 交叉编译器
+      # -ldflags "-s -w -H=windowsgui" :
+      #    -s -w : 去掉调试符号，减小体积
+      #    -H=windowsgui : 隐藏黑色的 CMD 控制台窗口 (静默运行)
       - name: Build for Windows
         run: |
           CGO_ENABLED=1 \
@@ -35,13 +38,13 @@ jobs:
           CC=x86_64-w64-mingw32-gcc \
           go build -ldflags "-s -w -H=windowsgui" -o YoloTools.exe main.go
 
-      # 5. 验证文件是否生成 (调试用)
+      # 5. 检查文件是否生成
       - name: Check Output
         run: ls -lh YoloTools.exe
 
-      # 6. 上传
+      # 6. 上传生成的文件到 GitHub Actions 页面
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Windows-Exe-Tool
+          name: YoloTools-Windows
           path: YoloTools.exe
