@@ -1,0 +1,29 @@
+name: Build Windows Exe
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21' # 或者你用的版本
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64 libgl1-mesa-dev xorg-dev
+
+      - name: Build for Windows
+        run: |
+          # 使用 MinGW 编译器进行交叉编译
+          CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o YoloTools.exe main.go
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-Exe-File
+          path: YoloTools.exe
