@@ -20,8 +20,7 @@ jobs:
       - name: Build for Windows
         run: |
           # 使用 MinGW 编译器进行交叉编译
-          CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o YoloTools.exe main.go
-
+          CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o YoloTools_Debug.exe main.go
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
