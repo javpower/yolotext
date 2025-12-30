@@ -7,25 +7,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 使用官方的 Fyne Cross Action
-      # 它会自动拉取 Docker 镜像，配置好 Windows 编译环境
-      - name: Build for Windows
-        uses: fyne-io/fyne-cross-action@master
+      # 1. 设置 Go 环境 (Fyne Cross 需要 Go)
+      - name: Set up Go
+        uses: actions/setup-go@v4
         with:
-          target: windows
-          arch: amd64
-          # 这里定义输出文件名 (不带 .exe 后缀，工具会自动加)
-          output: YoloTools
-          # 编译参数：-id 是为了消除 "Preferences API" 警告
-          # -app-id 必须与你在 main.go 里 app.NewWithID(...) 填的一致
-          args: -app-id yolo.tools.custom
+          go-version: '1.23' # 建议使用较新版本
 
-      # 2. 调试步骤：列出文件 (如果失败，方便看文件去哪了)
+      # 2. 安装 Fyne Cross 工具 (直接使用 go install 安装最新版工具)
+      # 相比引用第三方 Action，直接安装官方工具最稳定，不会出现 404
+      - name: Install fyne-cross
+        run: go install github.com/fyne-io/fyne-cross/v2/cmd/fyne-cross@latest
+
+      # 3. 执行编译命令
+      # 注意：GitHub Actions 的 Docker 环境下可以直接运行这个
+      - name: Build for Windows
+        run: |
+          # 确保 go bin 在 PATH 里
+          export PATH=$PATH:$(go env GOPATH)/bin
+          # 开始编译 Windows 版本
+          fyne-cross windows -arch=amd64 -app-id yolo.tools.custom -name YoloTools
+
+      # 4. 调试步骤：查看生成的文件结构 (排查路径问题)
       - name: List files (Debug)
         run: ls -R fyne-cross
 
-      # 3. 上传结果
-      # Fyne Cross 默认把编译好的文件放在 fyne-cross/bin/windows-amd64/ 目录下
+      # 5. 上传结果
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
