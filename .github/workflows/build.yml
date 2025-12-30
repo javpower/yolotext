@@ -7,40 +7,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 设置 Go 环境
+      # 1. 安装 Go
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
 
-      # 2. 修复可能缺失的依赖 (关键步骤)
-      # 有时候本地环境好好的，上传后缺 go.sum 导致编译挂掉
-      - name: Tidy Dependencies
+      # 2. 安装 Linux 下编译 Fyne 必须的图形库依赖
+      # 即使是交叉编译 Windows，Fyne 的构建过程也需要本地有一些基础头文件
+      - name: Install Linux Dependencies
         run: |
-          go mod tidy
-          go get fyne.io/fyne/v2/cmd/fyne
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64 libgl1-mesa-dev xorg-dev
 
-      # 3. 安装 Fyne Cross 编译工具
-      - name: Install fyne-cross
-        run: go install github.com/fyne-io/fyne-cross/v2/cmd/fyne-cross@latest
+      # 3. 整理依赖 (防止因 checksum 错误导致编译中断)
+      - name: Tidy Go Modules
+        run: go mod tidy
 
-      # 4. 执行编译
+      # 4. 执行交叉编译 (不使用 fyne-cross 工具，直接调用 Go 编译器)
+      # CC=... 指定了刚安装的 Windows 交叉编译器
+      # -H=windowsgui 隐藏黑框
       - name: Build for Windows
         run: |
-          # 将 go bin 加入路径
-          export PATH=$PATH:$(go env GOPATH)/bin
-          # 编译命令：指定输出名为 YoloTools
-          fyne-cross windows -arch=amd64 -app-id yolo.tools.custom -name YoloTools
+          CGO_ENABLED=1 \
+          GOOS=windows \
+          GOARCH=amd64 \
+          CC=x86_64-w64-mingw32-gcc \
+          go build -ldflags "-s -w -H=windowsgui" -o YoloTools.exe main.go
 
-      # 5. 调试步骤：列出生成的 exe 文件位置
-      # 如果这步打印为空，说明编译彻底失败了
-      - name: Find generated file
-        run: find . -name "*.exe"
+      # 5. 验证文件是否生成 (调试用)
+      - name: Check Output
+        run: ls -lh YoloTools.exe
 
-      # 6. 上传结果 (使用通配符)
-      # 这样写最稳，不管它是放在 bin/windows-amd64 还是哪里，只要生成了就能抓到
+      # 6. 上传
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Exe-Tool
-          path: fyne-cross/bin/**/*.exe
+          path: YoloTools.exe
