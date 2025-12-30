@@ -7,33 +7,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 设置 Go 环境 (Fyne Cross 需要 Go)
+      # 1. 设置 Go 环境
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.23' # 建议使用较新版本
+          go-version: '1.21'
 
-      # 2. 安装 Fyne Cross 工具 (直接使用 go install 安装最新版工具)
-      # 相比引用第三方 Action，直接安装官方工具最稳定，不会出现 404
+      # 2. 修复可能缺失的依赖 (关键步骤)
+      # 有时候本地环境好好的，上传后缺 go.sum 导致编译挂掉
+      - name: Tidy Dependencies
+        run: |
+          go mod tidy
+          go get fyne.io/fyne/v2/cmd/fyne
+
+      # 3. 安装 Fyne Cross 编译工具
       - name: Install fyne-cross
         run: go install github.com/fyne-io/fyne-cross/v2/cmd/fyne-cross@latest
 
-      # 3. 执行编译命令
-      # 注意：GitHub Actions 的 Docker 环境下可以直接运行这个
+      # 4. 执行编译
       - name: Build for Windows
         run: |
-          # 确保 go bin 在 PATH 里
+          # 将 go bin 加入路径
           export PATH=$PATH:$(go env GOPATH)/bin
-          # 开始编译 Windows 版本
+          # 编译命令：指定输出名为 YoloTools
           fyne-cross windows -arch=amd64 -app-id yolo.tools.custom -name YoloTools
 
-      # 4. 调试步骤：查看生成的文件结构 (排查路径问题)
-      - name: List files (Debug)
-        run: ls -R fyne-cross
+      # 5. 调试步骤：列出生成的 exe 文件位置
+      # 如果这步打印为空，说明编译彻底失败了
+      - name: Find generated file
+        run: find . -name "*.exe"
 
-      # 5. 上传结果
+      # 6. 上传结果 (使用通配符)
+      # 这样写最稳，不管它是放在 bin/windows-amd64 还是哪里，只要生成了就能抓到
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Exe-Tool
-          path: fyne-cross/bin/windows-amd64/YoloTools.exe
+          path: fyne-cross/bin/**/*.exe
