@@ -7,22 +7,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21' # 或者你用的版本
-
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64 libgl1-mesa-dev xorg-dev
-
+      # 1. 使用官方的 Fyne Cross Action
+      # 它会自动拉取 Docker 镜像，配置好 Windows 编译环境
       - name: Build for Windows
-        run: |
-          # 使用 MinGW 编译器进行交叉编译
-          CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o YoloTools_Debug.exe main.go
+        uses: fyne-io/fyne-cross-action@master
+        with:
+          target: windows
+          arch: amd64
+          # 这里定义输出文件名 (不带 .exe 后缀，工具会自动加)
+          output: YoloTools
+          # 编译参数：-id 是为了消除 "Preferences API" 警告
+          # -app-id 必须与你在 main.go 里 app.NewWithID(...) 填的一致
+          args: -app-id yolo.tools.custom
+
+      # 2. 调试步骤：列出文件 (如果失败，方便看文件去哪了)
+      - name: List files (Debug)
+        run: ls -R fyne-cross
+
+      # 3. 上传结果
+      # Fyne Cross 默认把编译好的文件放在 fyne-cross/bin/windows-amd64/ 目录下
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Windows-Exe-File
-          path: YoloTools.exe
+          name: Windows-Exe-Tool
+          path: fyne-cross/bin/windows-amd64/YoloTools.exe
